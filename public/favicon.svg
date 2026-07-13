@@ -1,0 +1,9 @@
+<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="32" height="32" rx="7" fill="#eef2ff"/>
+  <!-- Lightning bolt -->
+  <path d="M16 3 L8 17 L13 17 L11 28 L21 13 L16 13 L18 3 Z" fill="#4f46e5" stroke="#4f46e5" stroke-width="0.5" stroke-linejoin="round"/>
+  <!-- Signal waves -->
+  <path d="M23 14 Q25 10 27 14" stroke="#818cf8" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+  <path d="M24 17 Q27 11 30 17" stroke="#818cf8" stroke-width="1.8" fill="none" stroke-linecap="round" opacity="0.5"/>
+</svg>

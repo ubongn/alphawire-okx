@@ -1,0 +1,13 @@
+<svg width="130" height="28" viewBox="0 0 130 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Lightning bolt icon -->
+  <g transform="translate(2, 1)">
+    <path d="M11 1 L4 14 L9 14 L7 25 L16 10 L11 10 L13 1 Z" fill="#4f46e5" stroke="#4f46e5" stroke-width="0.5" stroke-linejoin="round"/>
+    <!-- Signal waves -->
+    <path d="M19 10 Q21 6 23 10" stroke="#818cf8" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+    <path d="M20 13 Q23 7 26 13" stroke="#818cf8" stroke-width="1.5" fill="none" stroke-linecap="round" opacity="0.6"/>
+  </g>
+  <!-- Wordmark -->
+  <text x="34" y="18" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="15" font-weight="700" fill="#111827" letter-spacing="-0.3">
+    AlphaWire
+  </text>
+</svg>
