@@ -115,7 +115,7 @@ export async function GET() {
       price: PRICE,
       network: NETWORK,
       payTo: PAY_TO,
-      paymentEnabled: PAYMENT_ENABLED,
+      paymentEnabled: true,
     },
     endpoint: {
       tools: "POST /api/mcp",
