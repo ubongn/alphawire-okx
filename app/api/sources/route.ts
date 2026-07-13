@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
 import { store } from '@/lib/store';
-import { addSource } from '@/lib/monitor';
+import { addSource, checkSource, checkAllSources } from '@/lib/monitor';
 
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+export const maxDuration = 60;
 
 export async function GET() {
   const sources = store.getAllSources().map((s) => ({
@@ -15,7 +17,13 @@ export async function GET() {
     contentHash: s.contentHash ? s.contentHash.slice(0, 16) : null,
   }));
 
-  return NextResponse.json({ count: sources.length, sources });
+  const signalCount = store.getAllSignals(9999).length;
+
+  return NextResponse.json({
+    count: sources.length,
+    signals: signalCount,
+    sources,
+  });
 }
 
 export async function POST(request: Request) {
@@ -39,7 +47,13 @@ export async function POST(request: Request) {
       );
     }
 
+    // Add source and immediately fetch its content (synchronous)
     const source = addSource(url, name, intervalSec);
+
+    // Wait for the initial fetch to complete
+    await checkSource(source);
+
+    const updated = store.getSource(source.id);
 
     return NextResponse.json({
       ok: true,
@@ -49,12 +63,34 @@ export async function POST(request: Request) {
         name: source.name,
         intervalSec: source.intervalSec,
         status: source.status,
+        lastChecked: updated?.lastChecked
+          ? new Date(updated.lastChecked).toISOString()
+          : null,
+        contentHash: updated?.contentHash
+          ? updated.contentHash.slice(0, 16)
+          : null,
+        linesFetched: 'contentFetched' in source ? (source as any).contentFetched : undefined,
       },
     });
-  } catch {
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json(
-      { ok: false, error: 'Invalid request body' },
-      { status: 400 },
+      { ok: false, error: msg },
+      { status: 500 },
     );
   }
+}
+
+// --- Manual scan trigger -------------------------------------------------
+export async function PUT() {
+  const before = store.getAllSignals(9999).length;
+  await checkAllSources();
+  const after = store.getAllSignals(9999).length;
+
+  return NextResponse.json({
+    ok: true,
+    scanned: store.getActiveSources().length,
+    newSignals: after - before,
+    totalSignals: after,
+  });
 }
