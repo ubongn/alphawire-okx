@@ -126,6 +126,5 @@ const globalForStore = globalThis as unknown as { __alphaStore?: DataStore };
 export const store: DataStore =
   globalForStore.__alphaStore ?? new DataStore();
 
-if (process.env.NODE_ENV !== 'production') {
-  globalForStore.__alphaStore = store;
-}
+// Always attach to global so it persists within a serverless function's lifetime
+globalForStore.__alphaStore = store;

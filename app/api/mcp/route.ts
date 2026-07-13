@@ -21,6 +21,7 @@ import { ExactEvmScheme } from "@okxweb3/x402-evm/exact/server";
 import { OKXFacilitatorClient } from "@okxweb3/x402-core";
 
 import { dispatchMcpTool, getToolManifest } from "@/lib/mcp-tools";
+import { seedDemoData } from "@/lib/seed";
 import type { McpToolCall } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -107,6 +108,7 @@ function safeBase64Encode(data: string): string {
 
 // --- free discovery ---------------------------------------------------------
 export async function GET() {
+  seedDemoData();
   return NextResponse.json({
     server: "AlphaWire MCP",
     version: "1.0.0",

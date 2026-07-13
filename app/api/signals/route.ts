@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server';
 import { store } from '@/lib/store';
+import { seedDemoData } from '@/lib/seed';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
+  seedDemoData();
   const { searchParams } = new URL(request.url);
   const limit = Math.min(parseInt(searchParams.get('limit') ?? '50'), 100);
   const token = searchParams.get('token');

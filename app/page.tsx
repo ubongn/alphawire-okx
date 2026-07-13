@@ -1,6 +1,10 @@
 import { store } from '@/lib/store';
+import { seedDemoData } from '@/lib/seed';
+
+export const dynamic = 'force-dynamic';
 
 export default function HomePage() {
+  seedDemoData();
   const stats = store.getStats();
   const recentSignals = stats.recentSignals;
 

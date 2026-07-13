@@ -1,12 +1,14 @@
 import { NextResponse } from 'next/server';
 import { store } from '@/lib/store';
 import { addSource, checkSource, checkAllSources } from '@/lib/monitor';
+import { seedDemoData } from '@/lib/seed';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
 export async function GET() {
+  seedDemoData();
   const sources = store.getAllSources().map((s) => ({
     id: s.id,
     url: s.url,
