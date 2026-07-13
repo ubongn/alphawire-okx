@@ -89,6 +89,7 @@ function buildPaymentRequired(requestUrl: string) {
         extra: {
           name: "USD₮0",
           version: "1",
+          decimals: "6",
         },
       },
     ],
