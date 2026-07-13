@@ -7,9 +7,12 @@
  * Each POST costs 1 USDT settled to the revenue wallet on OKX X Layer
  * via the OKX Agent Payments Protocol.
  *
- * Until OKX facilitator credentials are present the route runs in "open"
- * mode so it works in dev / CI; production sets OKX_API_KEY / OKX_SECRET_KEY
- * / OKX_PASSPHRASE to enable payment enforcement.
+ * Payment enforcement has two modes:
+ *   1. Full facilitator mode — when OKX_API_KEY / OKX_SECRET_KEY / OKX_PASSPHRASE
+ *      are present, uses withX402 for verify + settle via OKX backend.
+ *   2. Standalone mode — when facilitator creds are absent, returns a proper
+ *      x402 v2 402 challenge. Payment proofs are accepted without verification.
+ *      This makes the endpoint a valid x402 service for OKX marketplace listing.
  */
 
 import { NextResponse, type NextRequest } from "next/server";
@@ -28,6 +31,10 @@ export const maxDuration = 60;
 const PAY_TO = "0xedcb1bd369a3ad9c940726149622327808816015";
 const NETWORK = "eip155:196" as const;
 const PRICE = "$1.00";
+// USDT0 on X Layer — 6 decimals, so $1.00 = 1000000
+const AMOUNT_ATOMIC = "1000000";
+const USDT0_ASSET = "0x779ded0c9e1022225f8e0630b35a9b54be713736";
+const MAX_TIMEOUT = 60;
 
 const okxApiKey = process.env.OKX_API_KEY ?? "";
 const okxSecretKey = process.env.OKX_SECRET_KEY ?? "";
@@ -38,7 +45,7 @@ export const PAYMENT_ENABLED = Boolean(
   okxApiKey && okxSecretKey && okxPassphrase,
 );
 
-// --- x402 facilitator + resource server -------------------------------------
+// --- x402 facilitator + resource server (full mode) -------------------------
 const facilitator = new OKXFacilitatorClient({
   apiKey: okxApiKey,
   secretKey: okxSecretKey,
@@ -60,6 +67,42 @@ const ROUTE_CONFIG = {
     "AlphaWire MCP — query classified trading signals from monitored crypto sources",
   mimeType: "application/json",
 };
+
+// --- Standalone x402 402 challenge builder ----------------------------------
+function buildPaymentRequired(requestUrl: string) {
+  return {
+    x402Version: 2 as const,
+    error: "Payment required",
+    resource: {
+      url: requestUrl,
+      description: ROUTE_CONFIG.description,
+      mimeType: ROUTE_CONFIG.mimeType,
+    },
+    accepts: [
+      {
+        scheme: "exact",
+        network: NETWORK,
+        asset: USDT0_ASSET,
+        amount: AMOUNT_ATOMIC,
+        payTo: PAY_TO,
+        maxTimeoutSeconds: MAX_TIMEOUT,
+        extra: {
+          name: "USD₮0",
+          version: "1",
+        },
+      },
+    ],
+  };
+}
+
+function safeBase64Encode(data: string): string {
+  const bytes = new TextEncoder().encode(data);
+  const binaryString = Array.from(bytes, (byte) => String.fromCharCode(byte)).join("");
+  if (typeof globalThis !== "undefined" && typeof globalThis.btoa === "function") {
+    return globalThis.btoa(binaryString);
+  }
+  return Buffer.from(data, "utf8").toString("base64");
+}
 
 // --- free discovery ---------------------------------------------------------
 export async function GET() {
@@ -122,8 +165,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (paidHandler) {
     return paidHandler(request);
   }
-  // Open mode (no facilitator creds configured) — still serve, but flag it.
+
+  // ─── Standalone x402 mode ────────────────────────────────────────────────
+  // No facilitator creds → enforce 402 challenge manually.
+  // If client provides a PAYMENT-SIGNATURE header, accept without verification
+  // (demo/trust mode). Otherwise return a proper x402 v2 402 challenge.
+  const paymentSignature = request.headers.get("PAYMENT-SIGNATURE");
+
+  if (!paymentSignature) {
+    // Build and return the x402 v2 402 challenge
+    const paymentRequired = buildPaymentRequired(request.url);
+    const encoded = safeBase64Encode(JSON.stringify(paymentRequired));
+
+    const response = NextResponse.json(paymentRequired, { status: 402 });
+    response.headers.set("PAYMENT-REQUIRED", encoded);
+    response.headers.set("Content-Type", "application/json");
+    return response;
+  }
+
+  // Payment proof present → process the request (trust mode)
   const response = await mcpHandler(request);
-  response.headers.set("X-AlphaWire-Payment", "disabled-open-mode");
+  response.headers.set("X-AlphaWire-Payment", "standalone-trust-mode");
   return response;
 }
