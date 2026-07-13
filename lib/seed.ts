@@ -20,8 +20,11 @@ export function seedDemoData(): void {
     { url: 'https://www.binance.com/en/support/announcement/cryptocurrency-listing', name: 'Binance — Listing Announcements', intervalSec: 120, lastChecked: NOW - 45_000, contentHash: 'a1b2c3d4e5f6a7b8', status: 'active' },
     { url: 'https://www.coinbase.com/blog', name: 'Coinbase — Blog', intervalSec: 300, lastChecked: NOW - 120_000, contentHash: 'f7e6d5c4b3a29180', status: 'active' },
     { url: 'https://www.coindesk.com/arc/outboundfeeds/rss/', name: 'CoinDesk — RSS Feed', intervalSec: 180, lastChecked: NOW - 30_000, contentHash: '765482886be77ce4', status: 'active' },
-    { url: 'https://www.sec.gov/cgi-bin/browse-edgar', name: 'SEC EDGAR — 8-K Filings', intervalSec: 600, lastChecked: NOW - 200_000, contentHash: '4ca55aac0a73b8dd', status: 'active' },
+    { url: 'https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=8-K&company=&dateb=&owner=include&count=40&search_text=&output=atom', name: 'SEC EDGAR — 8-K Filings', intervalSec: 300, lastChecked: NOW - 90_000, contentHash: 'a0fa031eec52dd20', status: 'active' },
     { url: 'https://www.okx.com/support/hc/en-us/sections/360000514431', name: 'OKX — Announcements', intervalSec: 120, lastChecked: NOW - 60_000, contentHash: '9z8y7x6w5v4u3t2s', status: 'active' },
+    { url: 'https://blog.ethereum.org/feed.xml', name: 'Ethereum Foundation — Blog', intervalSec: 600, lastChecked: NOW - 150_000, contentHash: 'b3c4d5e6f7a8b9c0', status: 'active' },
+    { url: 'https://hacken.io/notifications/', name: 'Hacken — Security Alerts', intervalSec: 120, lastChecked: NOW - 50_000, contentHash: 'c4d5e6f7a8b9c0d1', status: 'active' },
+    { url: 'https://www.binance.com/en/support/announcement/delisting', name: 'Binance — Delisting Notices', intervalSec: 300, lastChecked: NOW - 110_000, contentHash: 'd5e6f7a8b9c0d1e2', status: 'active' },
   ];
 
   for (const s of sources) {
@@ -117,6 +120,28 @@ export function seedDemoData(): void {
       description: 'MicroStrategy 8-K: Q2 earnings show additional 12,333 BTC acquired. Total holdings now exceed 226,500 BTC.',
       timestamp: NOW - 312 * MIN,
       momentumWindow: { entryTime: NOW - 312 * MIN, exitWindowMin: 480, peakTimeEstimate: NOW - 312 * MIN + 120 * MIN },
+    },
+    {
+      id: 'sig_009',
+      changeId: 'chg_009',
+      eventType: 'regulatory',
+      direction: 'bearish',
+      confidence: 0.81,
+      affectedTokens: ['SOL', 'USDC'],
+      description: 'SEC files 8-K disclosing investigation into stablecoin issuer reserves. Circle subpoenaed for USDC backing documentation.',
+      timestamp: NOW - 420 * MIN,
+      momentumWindow: { entryTime: NOW - 420 * MIN, exitWindowMin: 360, peakTimeEstimate: NOW - 420 * MIN + 90 * MIN },
+    },
+    {
+      id: 'sig_010',
+      changeId: 'chg_010',
+      eventType: 'partnership',
+      direction: 'bullish',
+      confidence: 0.74,
+      affectedTokens: ['SOL', 'PYTH'],
+      description: 'Pyth Network 8-K filing: integration with major TradFi data provider confirmed. Oracle feeds expand to cover 200+ real-world assets.',
+      timestamp: NOW - 500 * MIN,
+      momentumWindow: { entryTime: NOW - 500 * MIN, exitWindowMin: 300, peakTimeEstimate: NOW - 500 * MIN + 80 * MIN },
     },
   ];
 
