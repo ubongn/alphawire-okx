@@ -2,17 +2,15 @@
  * MCP endpoint — the paid agent surface for AlphaWire.
  *
  *   GET  /api/mcp   → free discovery (server info + tool list)
- *   POST /api/mcp   → MCP tool dispatch, gated by x402 payment
+ *   POST /api/mcp   → JSON-RPC 2.0 MCP protocol, tool calls gated by x402
  *
- * Each POST costs 1 USDT settled to the revenue wallet on OKX X Layer
- * via the OKX Agent Payments Protocol.
+ * Supports standard MCP JSON-RPC 2.0 protocol:
+ *   - initialize         → server capabilities (free)
+ *   - notifications/*    → no response (free)
+ *   - tools/list         → tool manifest (free)
+ *   - tools/call         → tool dispatch, gated by x402 payment
  *
- * Payment enforcement has two modes:
- *   1. Full facilitator mode — when OKX_API_KEY / OKX_SECRET_KEY / OKX_PASSPHRASE
- *      are present, uses withX402 for verify + settle via OKX backend.
- *   2. Standalone mode — when facilitator creds are absent, returns a proper
- *      x402 v2 402 challenge. Payment proofs are accepted without verification.
- *      This makes the endpoint a valid x402 service for OKX marketplace listing.
+ * Also backward-compatible with the legacy custom format { tool, arguments }.
  */
 
 import { NextResponse, type NextRequest } from "next/server";
@@ -32,7 +30,6 @@ export const maxDuration = 60;
 const PAY_TO = "0xedcb1bd369a3ad9c940726149622327808816015";
 const NETWORK = "eip155:196" as const;
 const PRICE = "$1.00";
-// USDT0 on X Layer — 6 decimals, so $1.00 = 1000000
 const AMOUNT_ATOMIC = "1000000";
 const USDT0_ASSET = "0x779ded0c9e1022225f8e0630b35a9b54be713736";
 const MAX_TIMEOUT = 60;
@@ -41,10 +38,7 @@ const okxApiKey = process.env.OKX_API_KEY ?? "";
 const okxSecretKey = process.env.OKX_SECRET_KEY ?? "";
 const okxPassphrase = process.env.OKX_PASSPHRASE ?? "";
 
-/** Payment is only enforced when OKX facilitator credentials are configured. */
-export const PAYMENT_ENABLED = Boolean(
-  okxApiKey && okxSecretKey && okxPassphrase,
-);
+const PAYMENT_ENABLED = Boolean(okxApiKey && okxSecretKey && okxPassphrase);
 
 // --- x402 facilitator + resource server (full mode) -------------------------
 const facilitator = new OKXFacilitatorClient({
@@ -106,6 +100,31 @@ function safeBase64Encode(data: string): string {
   return Buffer.from(data, "utf8").toString("base64");
 }
 
+// --- JSON-RPC 2.0 helpers ---------------------------------------------------
+function rpcResult(id: string | number | null, result: unknown) {
+  return NextResponse.json({ jsonrpc: "2.0", result, id });
+}
+
+function rpcError(
+  id: string | number | null,
+  code: number,
+  message: string,
+  status = 400,
+) {
+  return NextResponse.json(
+    { jsonrpc: "2.0", error: { code, message }, id },
+    { status },
+  );
+}
+
+/** Methods that are free (no x402 payment required). */
+const FREE_METHODS = new Set([
+  "initialize",
+  "notifications/initialized",
+  "tools/list",
+  "ping",
+]);
+
 // --- free discovery ---------------------------------------------------------
 export async function GET() {
   seedDemoData();
@@ -127,11 +146,11 @@ export async function GET() {
   });
 }
 
-// --- paid MCP tool dispatch -------------------------------------------------
-async function mcpHandler(request: NextRequest): Promise<NextResponse> {
-  let body: McpToolCall;
+// --- unified POST handler ---------------------------------------------------
+async function handlePost(request: NextRequest): Promise<NextResponse> {
+  let body: any;
   try {
-    body = (await request.json()) as McpToolCall;
+    body = await request.json();
   } catch {
     return NextResponse.json(
       { ok: false, error: "Invalid JSON body" },
@@ -139,55 +158,124 @@ async function mcpHandler(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  if (!body.tool) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error:
-          'Missing "tool" field. Available tools: monitor_url, get_signals, get_event_detail, get_momentum_forecast, list_monitored_sources',
-      },
-      { status: 400 },
-    );
+  // ── JSON-RPC 2.0 MCP protocol ────────────────────────────────────────────
+  if (body.jsonrpc === "2.0" && body.method) {
+    const { method, params, id } = body;
+
+    // Notifications (no id → no response)
+    if (method.startsWith("notifications/")) {
+      return new NextResponse(null, { status: 202 });
+    }
+
+    switch (method) {
+      case "initialize":
+        return rpcResult(id, {
+          protocolVersion: "2025-06-18",
+          serverInfo: {
+            name: "AlphaWire MCP",
+            version: "1.0.0",
+          },
+          capabilities: {
+            tools: { listChanged: false },
+            resources: { listChanged: false },
+            prompts: { listChanged: false },
+          },
+        });
+
+      case "ping":
+        return rpcResult(id, {});
+
+      case "tools/list":
+        return rpcResult(id, { tools: getToolManifest() });
+
+      case "tools/call": {
+        const toolName = params?.name;
+        const toolArgs = params?.arguments ?? {};
+        if (!toolName) {
+          return rpcError(id, -32602, 'Missing "name" in params');
+        }
+        const result = await dispatchMcpTool({
+          tool: toolName,
+          arguments: toolArgs,
+        });
+        if (result.ok) {
+          return rpcResult(id, {
+            content: [
+              { type: "text", text: JSON.stringify(result.data, null, 2) },
+            ],
+          });
+        }
+        return rpcError(id, -32000, result.error ?? "Tool execution failed");
+      }
+
+      default:
+        return rpcError(id, -32601, `Method not found: ${method}`);
+    }
   }
 
-  const result = await dispatchMcpTool({
-    tool: body.tool,
-    arguments: body.arguments ?? {},
-  });
+  // ── Legacy custom format { tool, arguments } ─────────────────────────────
+  if (body.tool) {
+    const result = await dispatchMcpTool({
+      tool: body.tool,
+      arguments: body.arguments ?? {},
+    });
+    return NextResponse.json(result, { status: result.ok ? 200 : 400 });
+  }
 
-  return NextResponse.json(result, { status: result.ok ? 200 : 400 });
+  return NextResponse.json(
+    { ok: false, error: "Unrecognized request format" },
+    { status: 400 },
+  );
 }
 
-// Wrap with x402 only when credentials are present; syncFacilitatorOnStart
-// disabled so construction never makes a network call.
+// --- POST entry point with x402 enforcement ---------------------------------
 const paidHandler = PAYMENT_ENABLED
-  ? withX402(mcpHandler, ROUTE_CONFIG, resourceServer, undefined, undefined, false)
+  ? withX402(handlePost, ROUTE_CONFIG, resourceServer, undefined, undefined, false)
   : null;
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  if (paidHandler) {
+  // Peek at body to decide if payment is needed for this method
+  const cloned = request.clone();
+  let needsPayment = true;
+  try {
+    const peeked = await cloned.json();
+    if (peeked.jsonrpc === "2.0" && peeked.method && FREE_METHODS.has(peeked.method)) {
+      needsPayment = false;
+    } else if (!peeked.jsonrpc && !peeked.tool) {
+      // Unknown format — let handler deal with it
+      needsPayment = false;
+    }
+  } catch {
+    // Can't parse — let handler return error
+    needsPayment = false;
+  }
+
+  // Full facilitator mode
+  if (paidHandler && needsPayment) {
     return paidHandler(request);
   }
 
+  if (paidHandler && !needsPayment) {
+    return handlePost(request);
+  }
+
   // ─── Standalone x402 mode ────────────────────────────────────────────────
-  // No facilitator creds → enforce 402 challenge manually.
-  // If client provides a PAYMENT-SIGNATURE header, accept without verification
-  // (demo/trust mode). Otherwise return a proper x402 v2 402 challenge.
-  const paymentSignature = request.headers.get("PAYMENT-SIGNATURE");
-
-  if (!paymentSignature) {
-    // Build and return the x402 v2 402 challenge
-    const paymentRequired = buildPaymentRequired(request.url);
-    const encoded = safeBase64Encode(JSON.stringify(paymentRequired));
-
-    const response = NextResponse.json(paymentRequired, { status: 402 });
-    response.headers.set("PAYMENT-REQUIRED", encoded);
-    response.headers.set("Content-Type", "application/json");
+  if (needsPayment) {
+    const paymentSignature = request.headers.get("PAYMENT-SIGNATURE");
+    if (!paymentSignature) {
+      const paymentRequired = buildPaymentRequired(request.url);
+      const encoded = safeBase64Encode(JSON.stringify(paymentRequired));
+      const response = NextResponse.json(paymentRequired, { status: 402 });
+      response.headers.set("PAYMENT-REQUIRED", encoded);
+      response.headers.set("Content-Type", "application/json");
+      return response;
+    }
+    // Payment proof present → trust mode
+    const response = await handlePost(request);
+    response.headers.set("X-AlphaWire-Payment", "standalone-trust-mode");
     return response;
   }
 
-  // Payment proof present → process the request (trust mode)
-  const response = await mcpHandler(request);
-  response.headers.set("X-AlphaWire-Payment", "standalone-trust-mode");
-  return response;
+  // Free methods
+  return handlePost(request);
 }

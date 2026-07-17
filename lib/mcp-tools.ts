@@ -353,3 +353,94 @@ export function getToolManifest() {
     inputSchema: t.inputSchema,
   }));
 }
+
+// ---------------------------------------------------------------------------
+// JSON-RPC 2.0 server (MCP protocol)
+// ---------------------------------------------------------------------------
+
+export interface JsonRpcRequest {
+  jsonrpc?: string;
+  id?: string | number | null;
+  method: string;
+  params?: Record<string, unknown> | unknown[];
+}
+
+export interface JsonRpcResponse {
+  jsonrpc: '2.0';
+  id: string | number | null;
+  result?: unknown;
+  error?: { code: number; message: string; data?: unknown };
+}
+
+const PROTOCOL_VERSION = '2025-06-18';
+const SERVER_INFO = {
+  name: 'alphawire',
+  version: '1.0.0',
+};
+const CAPABILITIES = { tools: { listChanged: false } };
+
+function ok(id: string | number | null, result: unknown): JsonRpcResponse {
+  return { jsonrpc: '2.0', id, result };
+}
+
+function err(
+  id: string | number | null,
+  code: number,
+  message: string,
+): JsonRpcResponse {
+  return { jsonrpc: '2.0', id, error: { code, message } };
+}
+
+/** Dispatch a single JSON-RPC request. tools/call is async (tool execution). */
+export async function handleJsonRpc(
+  req: JsonRpcRequest,
+): Promise<JsonRpcResponse> {
+  const id = req.id ?? null;
+
+  switch (req.method) {
+    case 'initialize':
+      return ok(id, {
+        protocolVersion: PROTOCOL_VERSION,
+        capabilities: CAPABILITIES,
+        serverInfo: SERVER_INFO,
+      });
+
+    case 'initialized':
+    case 'notifications/initialized':
+      return ok(id, {});
+
+    case 'tools/list':
+      return ok(id, { tools: MCP_TOOLS });
+
+    case 'tools/call': {
+      const params = (req.params ?? {}) as {
+        name?: string;
+        arguments?: Record<string, unknown>;
+      };
+      const name = params.name;
+      const args = params.arguments ?? {};
+
+      if (!name) {
+        return err(id, -32602, 'Missing required parameter: name');
+      }
+
+      const result = await dispatchMcpTool({ tool: name, arguments: args });
+
+      return ok(id, {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
+        isError: !result.ok,
+      });
+    }
+
+    case 'ping':
+      return ok(id, {});
+
+    default:
+      return err(id, -32601, `Method not found: ${req.method}`);
+  }
+}
