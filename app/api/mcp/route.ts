@@ -117,13 +117,9 @@ function rpcError(
   );
 }
 
-/** Methods that are free (no x402 payment required). */
-const FREE_METHODS = new Set([
-  "initialize",
-  "notifications/initialized",
-  "tools/list",
-  "ping",
-]);
+// NOTE: ALL POST requests require x402 payment (returns 402 without payment).
+// OKX x402 standard validation expects 402 for every unpaid POST.
+// Free discovery (tool list, capabilities) is available via GET /api/mcp only.
 
 // --- free discovery ---------------------------------------------------------
 export async function GET() {
@@ -234,48 +230,27 @@ const paidHandler = PAYMENT_ENABLED
   : null;
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  // Peek at body to decide if payment is needed for this method
-  const cloned = request.clone();
-  let needsPayment = true;
-  try {
-    const peeked = await cloned.json();
-    if (peeked.jsonrpc === "2.0" && peeked.method && FREE_METHODS.has(peeked.method)) {
-      needsPayment = false;
-    } else if (!peeked.jsonrpc && !peeked.tool) {
-      // Unknown format — let handler deal with it
-      needsPayment = false;
-    }
-  } catch {
-    // Can't parse — let handler return error
-    needsPayment = false;
-  }
+  // ALL POSTs require x402 payment — OKX x402 standard validation
+  // expects 402 for every unpaid POST (matches NarrativeRadar pattern)
 
   // Full facilitator mode
-  if (paidHandler && needsPayment) {
+  if (paidHandler) {
     return paidHandler(request);
   }
 
-  if (paidHandler && !needsPayment) {
-    return handlePost(request);
-  }
-
   // ─── Standalone x402 mode ────────────────────────────────────────────────
-  if (needsPayment) {
-    const paymentSignature = request.headers.get("PAYMENT-SIGNATURE");
-    if (!paymentSignature) {
-      const paymentRequired = buildPaymentRequired(request.url);
-      const encoded = safeBase64Encode(JSON.stringify(paymentRequired));
-      const response = NextResponse.json(paymentRequired, { status: 402 });
-      response.headers.set("PAYMENT-REQUIRED", encoded);
-      response.headers.set("Content-Type", "application/json");
-      return response;
-    }
-    // Payment proof present → trust mode
-    const response = await handlePost(request);
-    response.headers.set("X-AlphaWire-Payment", "standalone-trust-mode");
+  const paymentSignature = request.headers.get("PAYMENT-SIGNATURE");
+  if (!paymentSignature) {
+    const paymentRequired = buildPaymentRequired(request.url);
+    const encoded = safeBase64Encode(JSON.stringify(paymentRequired));
+    const response = NextResponse.json(paymentRequired, { status: 402 });
+    response.headers.set("PAYMENT-REQUIRED", encoded);
+    response.headers.set("Content-Type", "application/json");
     return response;
   }
 
-  // Free methods
-  return handlePost(request);
+  // Payment proof present → process request
+  const response = await handlePost(request);
+  response.headers.set("X-AlphaWire-Payment", "standalone-trust-mode");
+  return response;
 }
